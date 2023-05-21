@@ -1,3 +1,5 @@
 combines/*.wav
 shares/*.wav
 *.pyc
+Lib
+Scripts
