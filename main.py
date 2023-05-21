@@ -34,20 +34,26 @@ def multiprocessing_read_wave(path: List[str], num_process: int):
     with Pool(processes=num_process) as pool:
         return pool.map(sync_read_wave, path)
 
-def sync_write_wave(path: str, frame_bytes: bytearray, params: wave._wave_params):
+def sync_write_wave(param: Tuple[str, bytearray, wave._wave_params]):   #path: str, frame_bytes: bytearray, params: wave._wave_params):
+    path, frame_bytes, params = param
+
     with wave.open(path, 'wb') as wavefile:
         wavefile.setparams(params)
         wavefile.writeframes(bytes(frame_bytes))
         return True
 
 async def async_write_wave(path: str, frame_bytes: bytearray, params: wave._wave_params):
-    return await asyncio.to_thread(sync_write_wave, path, frame_bytes, params)
+    return await asyncio.to_thread(sync_write_wave, (path, frame_bytes, params))
 
 def multiprocessing_write_wave(path: List[str], frame_bytes: List[bytearray], params: List[wave._wave_params], num_process: int):
     with Pool(processes=num_process) as pool:
-        return pool.map(sync_write_wave, path, frame_bytes, params)
+        return pool.map(sync_write_wave, [
+            (path[i], frame_bytes[i], params[i]) for i in range(len(path))
+        ])
 
-def split(data: bytearray | bytes, num: int):
+def split(param: Tuple[bytearray | bytes, int]):
+    data, num = param
+
     arr_random_bytes = multiprocessing_gen_rand_bytes(len(data), num-1)
 
     shares = [arr_random_bytes[0]]
@@ -63,10 +69,9 @@ def split(data: bytearray | bytes, num: int):
     return [bytes(share) for share in shares]
 
 def multiprocessing_split(data: List[bytearray | bytes], num: int, num_process: int):
-    # with Pool(processes=num_process) as pool:
-    #     return pool.map(split, data, [num for _ in range(len(data))])
-    return [split(data[i], num) for i in range(len(data))]
-
+    return [
+        split((data[i], num)) for i in range(len(data))
+    ]
 
 async def multi_share():
     num_files = int(input("Number files: "))
@@ -75,15 +80,13 @@ async def multi_share():
     for i in range(num_files):
         files_path.append(input("Path file {}: ".format(i+1)))
 
-    # frame_bytes: List[Tuple[bytearray, bytes]] = await asyncio.gather(*[async_read_wave(path) for path in files_path])
-    frame_bytes = multiprocessing_read_wave(files_path, num_files)
-
     num_share = int(input("Number share: "))
+
+    frame_bytes: List[Tuple[bytearray, bytes]] = await asyncio.gather(*[async_read_wave(path) for path in files_path])
 
     arr_frames = [x[0] for x in frame_bytes]
     arr_params = [x[1] for x in frame_bytes]
 
-    # combine
     arr_data = arr_frames + arr_params
     num_process = len(arr_data)
     splitted = multiprocessing_split(arr_data, num_share, num_process)
@@ -96,24 +99,65 @@ async def multi_share():
 
     pivot_param: wave._wave_params = pickle.loads(frame_bytes[0][1])
 
-    # _ = await asyncio.gather(*[
-    #     async_write_wave("share{}.wav".format(i+1), shares[i], pivot_param) 
-    #     for i in range(num_share)])
-    _ = multiprocessing_write_wave(
-        ["share{}.wav".format(i+1) for i in range(num_share)], 
-        shares, 
-        [pivot_param for _ in range(num_share)], 
-        num_share)
-
+    _ = await asyncio.gather(*[
+        async_write_wave("share{}.wav".format(i+1), shares[i], pivot_param) 
+        for i in range(num_share)])
     
+def recover(data: list[bytearray]):
+    recovered = [x for x in data[0]]
+    for i in range(1, len(data)):
+        for j in range(len(data[i])):
+            recovered[j] ^= data[i][j]
+    return bytes(recovered)
+
+async def multi_combine():
+    num_files = int(input("Number files: "))
+
+    files_path = []
+    for i in range(num_files):
+        files_path.append(input("Path file {}: ".format(i+1)))
+
+    frame_bytes: List[Tuple[bytearray, bytes]] = await asyncio.gather(*[async_read_wave(path) for path in files_path])
+
+    arr_frames = [x[0] for x in frame_bytes]
+    arr_splitted = [
+        frame.split(SEPARATOR)
+        for frame in arr_frames
+    ]
+
+    num_files = len(arr_splitted[0]) // 2
+
+    arr_data = [
+        [arr_splitted[i][j] for i in range(len(arr_splitted))]
+        for j in range(num_files * 2)
+    ]
+    arr_recovered = [
+        recover(arr_data[i]) for i in range(len(arr_data))
+    ]
+
+    arr_frame = arr_recovered[:num_files]
+    arr_params = arr_recovered[num_files:]
+    arr_loaded_params = [pickle.loads(params) for params in arr_params]
+
+    _ = await asyncio.gather(*[
+        async_write_wave("combine{}.wav".format(i+1), 
+                         arr_frame[i], arr_loaded_params[i]) 
+        for i in range(num_files)])
+
+
 def main():
     print("Program type: ")
     print("1. Multi share")
+    print("2. Multi combine")
 
     program_type = int(input("Program type: "))
 
     if program_type == 1:
         asyncio.run(multi_share())
+    elif program_type == 2:
+        asyncio.run(multi_combine())
+    else:
+        print("Invalid program type")
 
 
 if __name__ == '__main__':
