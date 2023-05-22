@@ -3,3 +3,6 @@ shares/*.wav
 *.pyc
 Lib
 Scripts
+# *.wav
+*.prof
+assets-size/*.wav

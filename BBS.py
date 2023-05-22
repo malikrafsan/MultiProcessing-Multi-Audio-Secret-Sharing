@@ -1,17 +1,16 @@
 from MathUtils import MathUtils
 import random
 import math
-import numpy as np
 
 class BBS:
-    def __init__(self, p: int, q: int, seed= None):
+    def __init__(self, p: int, q: int, seed: int):
         if not self.__validate_p_q(p, q):
             raise Exception("p and q must be positive integers and congruent to 3 mod 4")
 
         self.p = p
         self.q = q
         self.n = p * q
-        self.seed = self.__gen_seed(self.n, seed)
+        self.seed = self.__validate_seed(self.n, seed)
 
     def __validate_p_q(self, p: int, q: int):
         return ((p > 0 and q > 0) and 
@@ -19,10 +18,9 @@ class BBS:
                 MathUtils.is_prime(p) and 
                 MathUtils.is_prime(q))
     
-    def __gen_seed(self, n: int, seed: int | None):
-        seed = random.randint(2, n-1) if seed is None else seed
-        while ((not MathUtils.coprime(n, seed)) and (not (seed >= 2 and seed < n))):
-            seed = random.randint(2, n-1)
+    def __validate_seed(self, n: int, seed: int):
+        if ((not MathUtils.coprime(n, seed)) and (not (seed >= 2 and seed < n))):
+            raise Exception("seed must be coprime to n and in range [2, n)")
         
         return seed
 
